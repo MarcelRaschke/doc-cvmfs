@@ -117,6 +117,8 @@ CVMFS_USYSLOG                   | All messages that normally are logged to syslo
                                 | This file can grow up to 500kB and there is one step of log rotation.
                                 | Required for $\mu$CernVM.
 CVMFS_WORKSPACE                 Set the local directory for storing special files (defaults to the cache directory).
+CVMFS_USE_SSL_SYSTEM_CA         | When connecting to an HTTPS endpoints,
+                                | it will load the certificates provided by the system.
 =============================== ========================================================================================
 
 
@@ -155,6 +157,7 @@ CVMFS_DONT_CHECK_OVERLAYFS_VERSION  | Disable checking of OverlayFS version befo
                                     | (see :ref:`sct_reporequirements`)
 CVMFS_ENFORCE_LIMITS                | Set to *true* to cause exceeding \*LIMIT variables to be fatal to a publish
                                     | instead of a warning
+CVMFS_EXTENDED_GC_STATS             | Set to *true* to keep track of the volume of garbage collected files (increases GC running time)
 CVMFS_EXTERNAL_DATA                 | Set to *true* to mark repository to contain external data
                                     | that is served from an external HTTP server
 CVMFS_FILE_MBYTE_LIMIT              | Maximum number of megabytes for a published file, default value: 1024
@@ -162,8 +165,7 @@ CVMFS_FILE_MBYTE_LIMIT              | Maximum number of megabytes for a publishe
 CVMFS_FORCE_REMOUNT_WARNING         | Enable/disable warning through ``wall`` and grace period before forcefully
                                     | remounting a CernVM-FS repository on the release managere machine.
 CVMFS_GARBAGE_COLLECTION            Enables repository garbage collection |br| (Stratum~0 only | if set to *true*)
-CVMFS_GENERATE_LEGACY_BULK_CHUNKS   | Set to *false* to disable generation of whole-file objects for large files.
-                                    | Requires clients >= 2.1.7.
+CVMFS_GENERATE_LEGACY_BULK_CHUNKS   | Deprecated, set to *true* to enable generation of whole-file objects for large files.
 CVMFS_GC_DELETION_LOG               | Log file path to track all garbage collected objects during sweeping
                                     | for bookkeeping or debugging
 CVMFS_GEO_DB_FILE                   Path to externally updated location of geolite2 city database, or 'None' for no database.
@@ -172,7 +174,7 @@ CVMFS_GID_MAP                       Path of a file for the mapping of file owner
 CVMFS_HASH_ALGORITHM                | Define which secure hash algorithm should be used by CernVM-FS for CAS objects
                                     | (supported are: *sha1*, *rmd160* and *shake128*)
 CVMFS_IGNORE_SPECIAL_FILES          Set to *true* to skip special files during publish without aborting.
-CVMFS_IGNORE_XDIR_HARDLINKS         | If set to *true*, do not abort the publish operation when cross-directory
+CVMFS_IGNORE_XDIR_HARDLINKS         | Deprecated, defaults to *true*
                                     | hardlinks are found. Instead automatically break the hardlinks across directories.
 CVMFS_INCLUDE_XATTRS                Set to *true* to process extended attributes
 CVMFS_MAX_CHUNK_SIZE                Maximal size of a file chunk in bytes (see also *CVMFS_USE_FILE_CHUNKING*)
@@ -185,6 +187,7 @@ CVMFS_NUM_UPLOAD_TASKS              | Number of threads used to commit data to s
 CVMFS_NUM_WORKERS                   | Maximal number of concurrently downloaded files during a Stratum1 pull operation
                                     | (Stratum~1 only).
 CVMFS_PUBLIC_KEY                    Colon-separated path to the public key file(s) or directory(ies) of the repository to be replicated. (Stratum 1 only).
+CVMFS_PRINT_STATISTICS              | Set to *true* to show publisher statistics on the console
 CVMFS_REPLICA_ACTIVE                | Stratum1-only: Set to *no* to skip this repository when executing
                                     | ``cvmfs_server snapshot -a``
 CVMFS_REPOSITORY_NAME               The fully qualified name of the specific repository.
@@ -197,6 +200,8 @@ CVMFS_SNAPSHOT_GROUP                | Group name for subset of repositories used
                                     | Added with ``cvmfs_server add-replica -g``.
 CVMFS_SPOOL_DIR                     | Location of the upstream spooler scratch directories;
                                     | the read-only CernVM-FS moint point and copy-on-write storage reside here.
+CVMFS_STATISTICS_DB                 | Set a custom path for the publisher statistics database
+CVMFS_STATS_DB_DAYS_TO_KEEP         | Sets the pruning interval for the publisher statistics database
 CVMFS_STRATUM0                      URL of the master copy (*stratum0*) of this specific repository.
 CVMFS_STRATUM1                      URL of the Stratum1 HTTP server for this specific repository.
 CVMFS_SYNCFS_LEVEL                  | Controls how often ``sync`` will by called by ``cvmfs_server`` operations.
@@ -207,8 +212,9 @@ CVMFS_UNION_DIR                     | Mount point of the union file system for c
                                     | (see :ref:`sct_repocreation_update`).
 CVMFS_UNION_FS_TYPE                 | Defines the union file system to be used for the repository.
                                     | (currently `aufs` and `overlayfs` are fully supported)
+CVMFS_UPLOAD_STATS_DB               | Publish repository statistics plots to the Stratum 0 /stats location
 CVMFS_UPSTREAM_STORAGE              | Upstream spooler description defining the basic upstream storage type
-                                    | and configuration.
+                                    | and configuration (see below).
 CVMFS_USE_FILE_CHUNKING             Allows backend to split big files into small chunks (*true* | *false*)
 CVMFS_USER                          The user name that owns and manipulates the files inside the repository.
 CVMFS_VIRTUAL_DIR                   | Set to *true* to enable the hidden, virtual ``.cvmfs/snapshots`` directory
@@ -222,6 +228,35 @@ X509_CERT_BUNDLE                    Bundle file with CA certificates for HTTPS c
 X509_CERT_DIR                       | Directory file with CA certificates for HTTPS connections,
                                     | defaults to /etc/grid-security/certificates (see :ref:`sct_data`)
 =================================== ====================================================================================
+
+Format of CVMFS_UPSTREAM_STORAGE
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The format of the ``CVMFS_UPSTREAM_STORAGE`` parameter depends on the storage backend.
+Note that this parameter is initialized by ``cvmfs_server mkfs`` resp. ``cvmfs_server add-replica``.
+The internals of the parameter are only relevant
+if the configuration is maintained by a configuration management system.
+
+For the local storage backend, the parameter specifies the storage directory (to be served by Apache)
+and a temporary directory in the form ``local,<path for temporary files>,<path to storage>``, e.g.
+
+::
+
+    CVMFS_UPSTREAM_STORAGE=local,/srv/cvmfs/sw.cvmfs.io/data/txn,/srv/cvmfs/sw.cvmfs.io
+
+For the S3 backend, the parameter specifies a temporary directory and the location of the S3 config file
+in the form ``s3,<path for temporary files>,<repository entry URL on the S3 server>@<S3 config file>``, e.g.
+
+::
+
+    CVMFS_UPSTREAM_STORAGE=S3,/var/spool/cvmfs/sw.cvmfs.io/tmp,cvmfs/sw.cvmfs.io@/etc/cvmfs/s3.conf
+
+The gateway backend can only be used on a remote publisher (not on a stratum 1).
+The parameter specifies a temporary directory and the endpoint of the gateway service, e.g.
+
+::
+
+    CVMFS_UPSTREAM_STORAGE=gw,/var/spool/cvmfs/sw.cvmfs.io/tmp,http://cvmfs-gw.cvmfs.io:4929/api/v1
 
 
 .. _apxsct_cacheparams:
